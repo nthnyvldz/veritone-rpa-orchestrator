@@ -1,0 +1,20 @@
+{
+  "name": "veritone-rpa-orchestrator",
+  "version": "1.0.0",
+  "description": "S1HR RPA orchestrator — runs note-adding and pre-screening sequentially during business hours",
+  "main": "dist/src/orchestrator.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/orchestrator.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "luxon": "^3.5.0",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3"
+  }
+}
