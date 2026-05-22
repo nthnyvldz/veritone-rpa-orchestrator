@@ -140,7 +140,14 @@ function scheduleNextDay(): void {
 }
 
 function start(): void {
-  const h = nowAest().hour;
+  const now = nowAest();
+  const h = now.hour;
+
+  if (now.weekday === 6 || now.weekday === 7) {
+    logger.info(`[Orchestrator] Weekend — skipping to next Monday.`);
+    scheduleNextDay();
+    return;
+  }
 
   if (h < WARMUP_START_HOUR) {
     const today5am = nowAest().set({ hour: WARMUP_START_HOUR, minute: 0, second: 0, millisecond: 0 });
