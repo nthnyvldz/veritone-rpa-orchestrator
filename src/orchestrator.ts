@@ -87,6 +87,7 @@ async function runDay(): Promise<void> {
   // ── Sequential cycles: 6 AM – 5 PM ────────────────────────────────────────
   logger.info(`[Orchestrator] Sequential cycling begins at ${nowAest().toFormat("HH:mm:ss")} AEST`);
   let cycleCount = 0;
+  let summarySent = false;
   while (nowAest().hour < STAGE_2_HOUR) {
     cycleCount++;
     const slotStart = Date.now();
@@ -106,11 +107,23 @@ async function runDay(): Promise<void> {
       break;
     }
 
-    // Last cycle: next 1h slot would reach 5 PM, so this pre-screening sends the daily summary
-    const isLastCycle = nowAest().plus({ milliseconds: NOTE_ADDING_SLOT_MS }).hour >= STAGE_2_HOUR;
+    // Last cycle: next 1h slot would reach 5 PM, so this pre-screening sends the daily summary.
+    // We also check 2 slots ahead because the pre-screening itself takes ~1h, meaning the cycle
+    // after this one may not reach pre-screening before the 5 PM break.
+    const nextSlotEnd = nowAest().plus({ milliseconds: NOTE_ADDING_SLOT_MS });
+    const cycleAfterNextSlotEnd = nextSlotEnd.plus({ milliseconds: NOTE_ADDING_SLOT_MS });
+    const isLastCycle = nextSlotEnd.hour >= STAGE_2_HOUR || cycleAfterNextSlotEnd.hour >= STAGE_2_HOUR;
 
+    if (isLastCycle) summarySent = true;
     await runPreScreening(isLastCycle);
     logger.info(`[Orchestrator] Cycle ${cycleCount} complete — ${nowAest().toFormat("HH:mm")} AEST`);
+  }
+
+  // Safety net: if the day ended without the summary being sent (e.g. the last pre-screening
+  // was skipped because the slot gap pushed past 5 PM), send it now before stage 2.
+  if (!summarySent && cycleCount > 0) {
+    logger.info(`[Orchestrator] Summary was not sent during cycling — running final pre-screening pass with sendSummary=true`);
+    await runPreScreening(true);
   }
 
   // ── Stage 2 pass: 5–6 PM ──────────────────────────────────────────────────
