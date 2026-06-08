@@ -8,7 +8,7 @@ dotenv.config();
 const TIMEZONE = "Australia/Sydney";
 const WARMUP_START_HOUR = 5;  // 5 AM AEST — note-adding warm-up begins
 const SEQ_START_HOUR = 6;     // 6 AM AEST — sequential cycling begins
-const STAGE_2_HOUR = 17;      // 5 PM AEST — stage 2 window starts (both phases, no pre-screening after)
+const STAGE_2_HOUR = 19;      // 7 PM AEST — stage 2 window starts (both phases, no pre-screening after)
 const END_HOUR = 18;          // 6 PM AEST — day session ends
 const WARMUP_GAP_MS = 2 * 60 * 1000;        // 2 min gap between warm-up passes
 const NOTE_ADDING_SLOT_MS = 60 * 60 * 1000; // 1-hour fixed slot per sequential cycle
