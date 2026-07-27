@@ -12,6 +12,7 @@ const STAGE_2_HOUR = 19;      // 7 PM AEST — stage 2 window starts (both phase
 const END_HOUR = 18;          // 6 PM AEST — day session ends
 const WARMUP_GAP_MS = 2 * 60 * 1000;        // 2 min gap between warm-up passes
 const NOTE_ADDING_SLOT_MS = 60 * 60 * 1000; // 1-hour fixed slot per sequential cycle
+const STAGE_2_SLOT_MS = 6 * 60 * 60 * 1000; // 6-hour cap for the end-of-day full-backlog pass
 
 const NOTE_ADDING_DIR = process.env.NOTE_ADDING_DIR;
 const PRESCREENING_DIR = process.env.PRESCREENING_DIR;
@@ -56,11 +57,15 @@ function runProcess(cwd: string, script: string, extraEnv: Record<string, string
   });
 }
 
-async function runNoteAdding(phase: "phase1Only" | "both"): Promise<void> {
-  logger.info(`[Orchestrator] Running note-adding (${phase}) at ${nowAest().toFormat("HH:mm:ss")} AEST`);
+async function runNoteAdding(phase: "phase1Only" | "both", stopAfterMs: number, sinceIso?: string): Promise<void> {
+  logger.info(
+    `[Orchestrator] Running note-adding (${phase}, stopAfter=${Math.round(stopAfterMs / 60000)}min` +
+    `${sinceIso ? `, since=${sinceIso}` : ""}) at ${nowAest().toFormat("HH:mm:ss")} AEST`,
+  );
   await runProcess(NOTE_ADDING_DIR!, "dist/src/run-once.js", {
     RUN_PHASE: phase,
-    STOP_AFTER_MS: String(NOTE_ADDING_SLOT_MS),
+    STOP_AFTER_MS: String(stopAfterMs),
+    ...(sinceIso ? { SINCE_ISO: sinceIso } : {}),
   });
 }
 
@@ -77,7 +82,7 @@ async function runDay(): Promise<void> {
   // ── Warm-up: note-adding loops until 7 AM ──────────────────────────────────
   logger.info(`[Orchestrator] Warm-up phase — clearing overnight backlog`);
   while (nowAest().hour < SEQ_START_HOUR) {
-    await runNoteAdding("both");
+    await runNoteAdding("both", NOTE_ADDING_SLOT_MS);
     if (nowAest().hour < SEQ_START_HOUR) {
       logger.info(`[Orchestrator] Warm-up gap (${WARMUP_GAP_MS / 60000} min) — next pass at ${nowAest().plus({ milliseconds: WARMUP_GAP_MS }).toFormat("HH:mm")} AEST`);
       await sleep(WARMUP_GAP_MS);
@@ -88,12 +93,21 @@ async function runDay(): Promise<void> {
   logger.info(`[Orchestrator] Sequential cycling begins at ${nowAest().toFormat("HH:mm:ss")} AEST`);
   let cycleCount = 0;
   let summarySent = false;
+  // Tracked in-memory only (resets to unfiltered on orchestrator restart — acceptable).
+  // Each cycle only looks at candidates submitted since the *previous* cycle started,
+  // so cycle 1 stays unfiltered (nothing submitted overnight is missed).
+  let previousCycleStartIso: string | undefined;
   while (nowAest().hour < STAGE_2_HOUR) {
     cycleCount++;
     const slotStart = Date.now();
-    logger.info(`[Orchestrator] Cycle ${cycleCount} — ${nowAest().toFormat("HH:mm")} AEST`);
+    const thisCycleStartIso = new Date(slotStart).toISOString();
+    logger.info(
+      `[Orchestrator] Cycle ${cycleCount} — ${nowAest().toFormat("HH:mm")} AEST` +
+      `${previousCycleStartIso ? ` (since=${previousCycleStartIso})` : " (unfiltered — first cycle)"}`,
+    );
 
-    await runNoteAdding("phase1Only");
+    await runNoteAdding("phase1Only", NOTE_ADDING_SLOT_MS, previousCycleStartIso);
+    previousCycleStartIso = thisCycleStartIso;
 
     // Hold the full 1-hour slot before starting pre-screening
     const remaining = NOTE_ADDING_SLOT_MS - (Date.now() - slotStart);
@@ -121,14 +135,16 @@ async function runDay(): Promise<void> {
 
   // Safety net: if the day ended without the summary being sent (e.g. the last pre-screening
   // was skipped because the slot gap pushed past 5 PM), send it now before stage 2.
+  // This is the actual correctness guarantee for summary-before-Stage-2 — the isLastCycle
+  // lookahead above is just a best-effort optimization to avoid a late duplicate send.
   if (!summarySent && cycleCount > 0) {
     logger.info(`[Orchestrator] Summary was not sent during cycling — running final pre-screening pass with sendSummary=true`);
     await runPreScreening(true);
   }
 
-  // ── Stage 2 pass: 5–6 PM ──────────────────────────────────────────────────
+  // ── Stage 2 pass: full-backlog, unfiltered, up to 6 hours ─────────────────
   logger.info(`[Orchestrator] Stage 2 pass — running note-adding (both phases) at ${nowAest().toFormat("HH:mm:ss")} AEST`);
-  await runNoteAdding("both");
+  await runNoteAdding("both", STAGE_2_SLOT_MS);
 
   logger.info(`[Orchestrator] Day session complete at ${nowAest().toFormat("HH:mm:ss")} AEST — ${cycleCount} cycle(s) ran today`);
   scheduleNextDay();
