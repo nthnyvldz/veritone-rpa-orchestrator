@@ -77,6 +77,7 @@ async function runPreScreening(sendSummary: boolean): Promise<void> {
 }
 
 async function runDay(): Promise<void> {
+  const sessionDate = nowAest().startOf("day");
   logger.info(`[Orchestrator] Day session starting at ${nowAest().toFormat("yyyy-MM-dd HH:mm:ss")} AEST`);
 
   // ── Warm-up: note-adding loops until 7 AM ──────────────────────────────────
@@ -147,12 +148,11 @@ async function runDay(): Promise<void> {
   await runNoteAdding("both", STAGE_2_SLOT_MS);
 
   logger.info(`[Orchestrator] Day session complete at ${nowAest().toFormat("HH:mm:ss")} AEST — ${cycleCount} cycle(s) ran today`);
-  scheduleNextDay();
+  scheduleNextDay(sessionDate);
 }
 
-function scheduleNextDay(): void {
-  const now = nowAest();
-  let next = now.plus({ days: 1 }).set({
+function scheduleNextDay(baseDate: DateTime = nowAest()): void {
+  let next = baseDate.plus({ days: 1 }).set({
     hour: WARMUP_START_HOUR,
     minute: 0,
     second: 0,
@@ -161,6 +161,11 @@ function scheduleNextDay(): void {
 
   while (next.weekday === 6 || next.weekday === 7) {
     next = next.plus({ days: 1 });
+  }
+
+  // Guard: if Stage 2 ran so long it crossed past `next` already, fall back to a fresh +1 day from now.
+  if (msUntil(next) === 0) {
+    return scheduleNextDay(nowAest());
   }
 
   const delayMs = msUntil(next);
